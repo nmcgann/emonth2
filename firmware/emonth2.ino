@@ -1,6 +1,8 @@
 /*
   emonTH V2 Low Power SI7021 Humidity & Temperature, DS18B20 Temperature & Pulse counting Node Example
 
+  *** Special NM modified version for boiler digital input monitoring
+  
   Si7021 = internal temperature & Humidity
   DS18B20 = External temperature
 
@@ -64,15 +66,19 @@ const char *firmware_version = {"4.1.5"};
   emonhub.conf node decoder:
   See: https://github.com/openenergymonitor/emonhub/blob/emon-pi/configuration.md
 
+  *** NM Special modified version to support up to 4 external temperature sensors plus a digital input level via the pulse
+  counting input. This requires a custom packet format in emonhub.conf.
+  *** initial version tested with just input level & 1 external temp sensor
+
     [[23]]
       nodename = emonTH_5
       firmware = V2.x_emonTH_DHT22_DS18B20_RFM69CW_Pulse
       hardware = emonTH_(Node_ID_Switch_DIP1:OFF_DIP2:OFF)
       [[[rx]]]
-         names = temperature, external temperature, humidity, battery, pulseCount
-         datacodes = h,h,h,h,L
-         scales = 0.1,0.1,0.1,0.1,1
-         units = C,C,%,V,p
+         names = temperature, external temperature, humidity, battery, pulseCount, pulseLevel
+         datacodes = h,h,h,h,L,h
+         scales = 0.1,0.1,0.1,0.1,1,1
+         units = C,C,%,V,p,p
   */
 // -------------------------------------------------------------------------------------------------------------
 
@@ -193,6 +199,7 @@ typedef struct
   int humidity;
   int battery;
   unsigned long pulsecount;
+  int pulseLevel; //NM added
 } Payload;
 Payload emonth;
 
@@ -464,6 +471,8 @@ void loop()
       #endif
     }
 
+    //NM added new read pulse pin input level
+    emonth.pulseLevel = digitalRead(pulse_count_pin);
 
     // Send data via RF
     if (EEProm.rf_on & 0x01)
