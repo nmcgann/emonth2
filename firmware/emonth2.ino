@@ -1,7 +1,11 @@
 /*
   emonTH V2 Low Power SI7021 Humidity & Temperature, DS18B20 Temperature & Pulse counting Node Example
 
-  *** Special NM modified version for boiler digital input monitoring
+  *** Special NM modified version for boiler digital input monitoring. Uses pulsecount input as level input
+  (with external 1M pullup to save power when not sampling). Note that the pulse counting function is
+  disabled. The number of external temperature sensors is set to 4 max.
+
+  Note a custom data packet is required, the standard EmonTh one will not work.
   
   Si7021 = internal temperature & Humidity
   DS18B20 = External temperature
@@ -68,17 +72,17 @@ const char *firmware_version = {"4.1.5"};
 
   *** NM Special modified version to support up to 4 external temperature sensors plus a digital input level via the pulse
   counting input. This requires a custom packet format in emonhub.conf.
-  *** initial version tested with just input level & 1 external temp sensor
+  *** note that pulsecount is disabled and will not work as the level input uses that pin.
 
     [[23]]
-      nodename = emonTH_5
+      nodename = emonTH_5_s
       firmware = V2.x_emonTH_DHT22_DS18B20_RFM69CW_Pulse
       hardware = emonTH_(Node_ID_Switch_DIP1:OFF_DIP2:OFF)
       [[[rx]]]
-         names = temperature, external temperature, humidity, battery, pulseCount, pulseLevel
-         datacodes = h,h,h,h,L,h
-         scales = 0.1,0.1,0.1,0.1,1,1
-         units = C,C,%,V,p,p
+         names = temperature, ext temp1, ext temp2, ext temp3, ext temp3, humidity, battery, pulseCount, pulseLevel
+         datacodes = h,h,h,h,h,h,h,L,h
+         scales = 0.1,0.1,0.1,0.1,0.1,0.1,0.1,1,1
+         units = C,C,C,C,C,%,V,p,p
   */
 // -------------------------------------------------------------------------------------------------------------
 
@@ -90,6 +94,7 @@ const char *firmware_version = {"4.1.5"};
 
 // Set in platformio.ini
 //#define RadioFormat RFM69_LOW_POWER_LABS
+#define RadioFormat RFM69_JEELIB_CLASSIC
 
 bool flash_led = false;                                                // true = Flash LED after each sample (increases battery drain)
 
@@ -123,7 +128,7 @@ const unsigned long PULSE_MAX_NUMBER = 100;                            // Data s
 #define MAX_SENSORS 4                                                  // The maximum number of external temperature sensors.
                                                                        // (Only the first will be sent by radio without further changes.)
                                                                        
-#define EXTERNAL_TEMP_SENSORS 1                                        // Specify number of external temperature sensors that are connected                                                                      
+#define EXTERNAL_TEMP_SENSORS 4                                        // Specify number of external temperature sensors that are connected ** changed to 4
                                                                        
 #define FACTORYTESTGROUP 1                                             // Transmit the Factory Test on Grp 1 
                                                                        //   to avoid interference with recorded data at power-up.
@@ -137,7 +142,7 @@ struct
   byte  rf_on = 1;                                                     // RF/Serial output. Bit 0 set: RF on, bit 1 set: serial on.
   byte  rfPower = 25;                                                  // 0 - 31 = -18 dBm (min value) - +13 dBm (max value). RFM12B equivalent: 25 (+7 dBm)
                                                                        //    lower power means increased battery life
-  bool  pulse_enable = true;                                           // Pulse counting
+  bool  pulse_enable = false;  //NM turn off                                         // Pulse counting
   int   pulse_period = 50;                                             // Pulse min period - 0 = no de-bounce
   bool  temperatureEnabled = true;                                     // Enable external temperature measurement
   DeviceAddress allAddresses[MAX_SENSORS];                             // External sensor address data
@@ -199,7 +204,7 @@ typedef struct
   int humidity;
   int battery;
   unsigned long pulsecount;
-  int pulseLevel; //NM added
+  int pulselevel; //NM added
 } Payload;
 Payload emonth;
 
@@ -250,7 +255,7 @@ void setup()
   
   if (EEProm.rf_on)
   {
-    list_calibration();
+    //list_calibration(); //NM move this later
     
 #ifdef RFM69CW
     #if RadioFormat == RFM69_LOW_POWER_LABS
@@ -294,7 +299,8 @@ void setup()
 
   pinMode(DS18B20_PWR,OUTPUT);
   pinMode(BATT_ADC, INPUT);
-  pinMode(pulse_count_pin, INPUT_PULLUP);
+  //pinMode(pulse_count_pin, INPUT_PULLUP);
+  pinMode(pulse_count_pin, INPUT); //NM default to input no pullup (ext pullup saves power when not sampling pin)
 
   //################################################################################################################################
   // Setup and for presence of si7021
@@ -364,7 +370,7 @@ void setup()
   //   Serial.println("No DS18B20");
   // Serial.println("");
 
-
+  list_calibration(); //NM - this makes more sense here as tests done by this point.
 
   //################################################################################################################################
   // Config mode
@@ -378,7 +384,6 @@ void setup()
 
   startPulseCount();
   
-  
   //################################################################################################################################
   // Power Save  - turn off what we don't need - http://www.nongnu.org/avr-libc/user-manual/group__avr__power.html
   //################################################################################################################################
@@ -390,6 +395,13 @@ void setup()
   power_timer1_disable();
   // power_timer0_disable();                                           //don't disable necessary for the DS18B20 library
   #endif
+
+  //NM turn off pullups on dip switches set to 0V (50k-20k pullup so 66uA-165uA per pin at 3.3V)
+  if (!dip1)
+    pinMode(DIP_switch1, INPUT);
+  if (!dip2)
+    pinMode(DIP_switch2, INPUT);
+
   // Only turn off LED if sensor is working
   if (SI7021_status)
   {
@@ -472,7 +484,9 @@ void loop()
     }
 
     //NM added new read pulse pin input level
-    emonth.pulseLevel = digitalRead(pulse_count_pin);
+    pinMode(pulse_count_pin, INPUT_PULLUP); dodelay(20); //turn on pullup and wait for settling time
+    emonth.pulselevel = digitalRead(pulse_count_pin);
+    pinMode(pulse_count_pin, INPUT); //turn off pullup (high value ext R used)
 
     // Send data via RF
     if (EEProm.rf_on & 0x01)

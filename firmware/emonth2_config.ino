@@ -37,6 +37,7 @@ const PROGMEM char helpText[] =
 "            - yy = 8 hexadecimal bytes representing the sensor's address\n"
 "               e.g.  28 81 43 31 07 00 00 D9\n"
 "               N.B. Sensors CANNOT be added.\n"
+"  k         - kill all saved temperature sensors in EEProm (save EEprom to make permanent)\n"
 ;
 
 extern DeviceAddress *temperatureSensors;
@@ -178,7 +179,8 @@ void getSettings(void)
       int k1;
       double k2;
       byte b;
-	  
+      byte j=0;
+
       switch (c) {
         case 'b':  // set band: 4 = 433, 8 = 868, 9 = 915
           b = bandToFreq(Serial.parseInt());
@@ -198,7 +200,19 @@ void getSettings(void)
           break;
           
         /* case 'i' below */
-          
+        
+//NM NEW BIT START        
+        case 'k': //kill all existing external temp sensors in EEprom image
+
+          for (j = MAX_SENSORS; j > 0; j--)
+          {
+            EEProm.allAddresses[j-1][0] = 0; //only need to clear first byte of address
+          }
+          Serial.println(F("Deleted all saved external temp sensor addresses (save EEprom to make permanent)."));
+         
+          break;
+//NM NEW BIT END
+
         case 'l':
           list_calibration(); // print the settings & calibration values
           break;
